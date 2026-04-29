@@ -34,6 +34,18 @@ defineRouteMeta({
                     title: { type: 'string', description: 'Custom title for link preview' },
                     description: { type: 'string', description: 'Custom description for link preview' },
                     image: { type: 'string', description: 'Custom image for link preview' },
+                    countryRedirects: {
+                      type: 'array',
+                      description: 'Country-specific redirect rules',
+                      items: {
+                        type: 'object',
+                        required: ['country', 'url'],
+                        properties: {
+                          country: { type: 'string', description: 'ISO 3166-1 alpha-2 country code' },
+                          url: { type: 'string', description: 'Redirect URL for the country' },
+                        },
+                      },
+                    },
                   },
                 },
               },
@@ -103,6 +115,7 @@ export default eventHandler(async (event) => {
         title: linkData.title,
         description: linkData.description,
         image: linkData.image,
+        countryRedirects: linkData.countryRedirects,
       }
 
       await putLink(event, link)

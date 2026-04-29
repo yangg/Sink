@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { AnyFieldApi, Link, LinkFormData } from '@/types'
-import { LinkSchema, nanoid } from '#shared/schemas/link'
+import { CountryRedirectsSchema, LinkSchema, nanoid } from '#shared/schemas/link'
 import { useForm } from '@tanstack/vue-form'
 import { Shuffle, Sparkles } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
@@ -34,6 +34,7 @@ const form = useForm({
       : undefined,
     google: props.link.google ?? '',
     apple: props.link.apple ?? '',
+    countryRedirects: props.link.countryRedirects ?? [],
     title: props.link.title ?? '',
     description: props.link.description ?? '',
     image: props.link.image ?? '',
@@ -44,6 +45,11 @@ const form = useForm({
   } satisfies LinkFormData,
   onSubmit: async ({ value }) => {
     try {
+      const countryRedirectsResult = CountryRedirectsSchema.safeParse(value.countryRedirects)
+      if (!countryRedirectsResult.success) {
+        throw new Error(countryRedirectsResult.error.errors[0]?.message || 'Invalid country redirect rules')
+      }
+
       const linkData = {
         url: value.url,
         slug: value.slug,
@@ -53,6 +59,7 @@ const form = useForm({
           : undefined,
         google: value.google || undefined,
         apple: value.apple || undefined,
+        countryRedirects: countryRedirectsResult.data,
         title: value.title || undefined,
         description: value.description || undefined,
         image: value.image || undefined,
@@ -91,6 +98,7 @@ const validateUrl = makeValidator(urlValidator)
 const validateSlug = makeValidator(slugValidator)
 const validateComment = makeValidator(commentValidator)
 const validateOptionalUrl = makeValidator(optionalUrlValidator)
+const validateCountryRedirects = makeValidator(CountryRedirectsSchema)
 
 const utmBuilderOpen = ref(false)
 
@@ -290,6 +298,7 @@ defineExpose({ randomSlug })
     <DashboardLinksEditorAdvanced
       :form="form"
       :validate-optional-url="validateOptionalUrl"
+      :validate-country-redirects="validateCountryRedirects"
       :is-invalid="isInvalid"
       :get-aria-invalid="getAriaInvalid"
       :format-errors="formatErrors"

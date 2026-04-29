@@ -18,6 +18,7 @@ const SOCIAL_BOTS = [
   'twitterbot',
   'whatsapp',
 ]
+const SPECIAL_COUNTRY_CODES = new Set(['A1', 'A2', 'O1', 'T1', 'XX'])
 
 function isSocialBot(userAgent: string): boolean {
   const ua = userAgent.toLowerCase()
@@ -39,6 +40,24 @@ function getDeviceRedirectUrl(userAgent: string, link: Link): string | null {
   }
 
   return null
+}
+
+function normalizeCountryCode(countryCode?: string | null): string | null {
+  if (!countryCode)
+    return null
+
+  const normalizedCountryCode = countryCode.trim().toUpperCase()
+  if (!/^[A-Z0-9]{2}$/.test(normalizedCountryCode) || SPECIAL_COUNTRY_CODES.has(normalizedCountryCode))
+    return null
+
+  return normalizedCountryCode
+}
+
+function getCountryRedirectUrl(countryCode: string | null, link: Link): string | null {
+  if (!countryCode || !link.countryRedirects?.length)
+    return null
+
+  return link.countryRedirects.find(rule => rule.country === countryCode)?.url || null
 }
 
 function hasOgConfig(link: Link): boolean {
@@ -145,22 +164,25 @@ export default eventHandler(async (event) => {
         return sendRedirect(event, deviceRedirectUrl, +redirectStatusCode)
       }
 
+      const requestCountryCode = normalizeCountryCode(getHeader(event, 'cf-ipcountry') || cloudflare.request.cf?.country)
+      const targetUrl = buildTarget(getCountryRedirectUrl(requestCountryCode, link) || link.url)
+
       if (isSocialBot(userAgent) && hasOgConfig(link)) {
         const baseUrl = `${getRequestProtocol(event)}://${getRequestHost(event)}`
-        const html = generateOgHtml(link, buildTarget(link.url), baseUrl)
+        const html = generateOgHtml(link, targetUrl, baseUrl)
         setHeader(event, 'Content-Type', 'text/html; charset=utf-8')
         return html
       }
 
       if (link.cloaking) {
         const baseUrl = `${getRequestProtocol(event)}://${getRequestHost(event)}`
-        const html = generateCloakingHtml(link, buildTarget(link.url), baseUrl)
+        const html = generateCloakingHtml(link, targetUrl, baseUrl)
         setHeader(event, 'Content-Type', 'text/html; charset=utf-8')
         setHeader(event, 'Cache-Control', 'no-store, private')
         return html
       }
 
-      return sendRedirect(event, buildTarget(link.url), +redirectStatusCode)
+      return sendRedirect(event, targetUrl, +redirectStatusCode)
     }
     else {
       if (notFoundRedirect) {

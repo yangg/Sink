@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { DateValue } from '@internationalized/date'
 import type { Component } from 'vue'
-import type { AnyFieldApi, LinkFormData } from '@/types'
+import type { AnyFieldApi, CountryRedirect, LinkFormData } from '@/types'
 import { today } from '@internationalized/date'
-import { CalendarIcon } from 'lucide-vue-next'
+import { CalendarIcon, Plus, Trash2 } from 'lucide-vue-next'
 import { cn } from '@/lib/utils'
 
 const props = defineProps<{
@@ -12,6 +12,7 @@ const props = defineProps<{
     getFieldValue: (name: keyof LinkFormData) => LinkFormData[keyof LinkFormData]
   }
   validateOptionalUrl: (ctx: { value: string }) => string | undefined
+  validateCountryRedirects: (ctx: { value: CountryRedirect[] | undefined }) => string | undefined
   isInvalid: (field: AnyFieldApi) => boolean
   getAriaInvalid: (field: AnyFieldApi) => string | undefined
   formatErrors: (errors: unknown[]) => string[]
@@ -19,6 +20,44 @@ const props = defineProps<{
 }>()
 
 const datePickerOpen = ref(false)
+const locale = useI18n().locale
+
+function createCountryRedirect(): CountryRedirect {
+  return {
+    country: '',
+    url: '',
+  }
+}
+
+function updateCountryRedirect(field: AnyFieldApi, index: number, patch: Partial<CountryRedirect>) {
+  const nextRules = [...((field.state.value as CountryRedirect[] | undefined) ?? [])]
+  const currentRule = nextRules[index] ?? createCountryRedirect()
+
+  nextRules[index] = {
+    ...currentRule,
+    ...patch,
+  }
+
+  field.handleChange(nextRules)
+}
+
+function addCountryRedirect(field: AnyFieldApi) {
+  const nextRules = [...((field.state.value as CountryRedirect[] | undefined) ?? []), createCountryRedirect()]
+  field.handleChange(nextRules)
+}
+
+function removeCountryRedirect(field: AnyFieldApi, index: number) {
+  const nextRules = ((field.state.value as CountryRedirect[] | undefined) ?? []).filter((_, currentIndex) => currentIndex !== index)
+  field.handleChange(nextRules)
+}
+
+function formatCountryPreview(country: string): string {
+  const normalizedCountry = country.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(normalizedCountry))
+    return ''
+
+  return [getFlag(normalizedCountry), getRegionName(normalizedCountry, locale.value)].filter(Boolean).join(' ')
+}
 
 // Compute default open items based on existing values
 const defaultOpenItems = computed(() => {
@@ -31,6 +70,10 @@ const defaultOpenItems = computed(() => {
   }
   if (props.form.getFieldValue('google') || props.form.getFieldValue('apple')) {
     items.push('device')
+  }
+  const countryRedirects = props.form.getFieldValue('countryRedirects')
+  if (Array.isArray(countryRedirects) && countryRedirects.length > 0) {
+    items.push('country')
   }
   if (props.form.getFieldValue('cloaking') || props.form.getFieldValue('redirectWithQuery') || props.form.getFieldValue('password') || props.form.getFieldValue('unsafe')) {
     items.push('link_settings')
@@ -282,6 +325,133 @@ const defaultOpenItems = computed(() => {
             </Field>
           </props.form.Field>
         </FieldGroup>
+      </AccordionContent>
+    </AccordionItem>
+
+    <AccordionItem value="country">
+      <AccordionTrigger>{{ $t('links.form.country_redirect') }}</AccordionTrigger>
+      <AccordionContent class="px-1">
+        <props.form.Field
+          v-slot="{ field }"
+          name="countryRedirects"
+          :validators="{ onChange: validateCountryRedirects }"
+        >
+          <Field>
+            <div class="space-y-3">
+              <div
+                v-if="field.state.value.length"
+                class="space-y-3"
+              >
+                <div
+                  v-for="(rule, index) in field.state.value"
+                  :key="`country-rule-${index}`"
+                  class="rounded-md border bg-muted/20 p-3"
+                >
+                  <div
+                    class="
+                      grid gap-3
+                      md:grid-cols-[104px_minmax(0,1fr)_auto] md:items-start
+                    "
+                  >
+                    <div class="space-y-1.5">
+                      <FieldLabel :for="`country-code-${index}`">
+                        {{ $t('links.form.country_code') }}
+                      </FieldLabel>
+                      <Input
+                        :id="`country-code-${index}`"
+                        :model-value="rule.country"
+                        maxlength="2"
+                        placeholder="US"
+                        autocomplete="off"
+                        aria-label="Country code"
+                        class="uppercase"
+                        @blur="field.handleBlur"
+                        @input="updateCountryRedirect(field, Number(index), { country: ($event.target as HTMLInputElement).value.toUpperCase() })"
+                      />
+                      <p
+                        v-if="formatCountryPreview(rule.country)"
+                        class="truncate text-xs text-muted-foreground"
+                      >
+                        {{ formatCountryPreview(rule.country) }}
+                      </p>
+                    </div>
+
+                    <div class="space-y-1.5">
+                      <FieldLabel :for="`country-url-${index}`">
+                        {{ $t('links.form.country_redirect_url') }}
+                      </FieldLabel>
+                      <Input
+                        :id="`country-url-${index}`"
+                        :model-value="rule.url"
+                        :aria-invalid="getAriaInvalid(field)"
+                        placeholder="https://example.com/us"
+                        autocomplete="off"
+                        aria-label="Country redirect URL"
+                        @blur="field.handleBlur"
+                        @input="updateCountryRedirect(field, Number(index), { url: ($event.target as HTMLInputElement).value })"
+                      />
+                    </div>
+
+                    <div
+                      class="
+                        flex justify-end
+                        md:pt-7
+                      "
+                    >
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Remove country redirect rule"
+                        @click="removeCountryRedirect(field, Number(index))"
+                      >
+                        <Trash2 class="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                v-else
+                class="
+                  rounded-md border border-dashed px-3 py-4 text-sm
+                  text-muted-foreground
+                "
+              >
+                {{ $t('links.form.country_redirect_empty') }}
+              </div>
+
+              <div
+                class="
+                  flex flex-col gap-3
+                  sm:flex-row sm:items-center sm:justify-between
+                "
+              >
+                <p class="text-xs text-muted-foreground">
+                  {{ $t('links.form.country_redirect_description') }}
+                </p>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  class="shrink-0"
+                  aria-label="Add country redirect rule"
+                  @click="addCountryRedirect(field)"
+                >
+                  <Plus class="mr-2 h-4 w-4" />
+                  {{ $t('links.form.country_redirect_add') }}
+                </Button>
+              </div>
+
+              <FieldError
+                v-if="field.state.meta.errors.length"
+                :errors="formatErrors(field.state.meta.errors)"
+              />
+            </div>
+          </Field>
+        </props.form.Field>
       </AccordionContent>
     </AccordionItem>
   </Accordion>

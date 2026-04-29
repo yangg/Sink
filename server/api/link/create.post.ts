@@ -32,6 +32,18 @@ defineRouteMeta({
               image: { type: 'string', description: 'Custom image for link preview' },
               apple: { type: 'string', description: 'Apple App Store redirect URL' },
               google: { type: 'string', description: 'Google Play Store redirect URL' },
+              countryRedirects: {
+                type: 'array',
+                description: 'Country-specific redirect rules',
+                items: {
+                  type: 'object',
+                  required: ['country', 'url'],
+                  properties: {
+                    country: { type: 'string', description: 'ISO 3166-1 alpha-2 country code' },
+                    url: { type: 'string', description: 'Redirect URL for the country' },
+                  },
+                },
+              },
               cloaking: { type: 'boolean', description: 'Enable link cloaking (mask destination URL)' },
               redirectWithQuery: { type: 'boolean', description: 'Append query parameters to destination URL' },
               password: { type: 'string', description: 'Password protection for the link' },

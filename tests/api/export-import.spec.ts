@@ -43,6 +43,25 @@ describe.sequential('/api/link/export', () => {
     expect(response.headers.get('Cache-Control')).toBe('no-store')
   })
 
+  it('includes country redirect rules in exported links', async () => {
+    const payload = {
+      url: 'https://example.com/default',
+      slug: 'export-country-rules',
+      countryRedirects: [
+        { country: 'US', url: 'https://example.com/us' },
+      ],
+    }
+
+    await postJson('/api/link/create', payload)
+
+    const response = await fetchWithAuth('/api/link/export')
+    expect(response.status).toBe(200)
+
+    const data: ExportData = await response.json()
+    const exportedLink = data.links.find(link => link.slug === payload.slug)
+    expect(exportedLink?.countryRedirects).toEqual(payload.countryRedirects)
+  })
+
   it('returns 401 when accessing without auth', async () => {
     const response = await fetch('/api/link/export')
     expect(response.status).toBe(401)
@@ -76,6 +95,32 @@ describe.sequential('/api/link/import', () => {
 
     const data: ImportResult = await response.json()
     expect(data.skipped).toBeGreaterThanOrEqual(0)
+  })
+
+  it('imports country redirect rules', async () => {
+    const importPayload = {
+      version: '1.0',
+      links: [{
+        url: 'https://example.com/default',
+        slug: 'import-country-rules',
+        countryRedirects: [
+          { country: 'US', url: 'https://example.com/us' },
+          { country: 'JP', url: 'https://example.com/jp' },
+        ],
+      }],
+    }
+
+    const response = await postJson('/api/link/import', importPayload)
+    expect(response.status).toBe(200)
+
+    const data: ImportResult = await response.json()
+    expect(data.success).toBe(1)
+
+    const queryResponse = await fetchWithAuth('/api/link/query?slug=import-country-rules')
+    expect(queryResponse.status).toBe(200)
+
+    const link = await queryResponse.json() as { countryRedirects?: Array<{ country: string, url: string }> }
+    expect(link.countryRedirects).toEqual(importPayload.links[0].countryRedirects)
   })
 
   it('returns 400 for invalid import data', async () => {

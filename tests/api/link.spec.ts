@@ -52,6 +52,26 @@ describe.sequential('/api/link/create', () => {
     expect(data.shortLink).toContain(testLinkPayload.slug)
   })
 
+  it('creates new link with country redirect rules', async () => {
+    const payload = {
+      url: 'https://example.com/default',
+      slug: 'country-rules-link',
+      countryRedirects: [
+        { country: 'us', url: 'https://example.com/us' },
+        { country: 'jp', url: 'https://example.com/jp' },
+      ],
+    }
+
+    const response = await postJson('/api/link/create', payload)
+    expect(response.status).toBe(201)
+
+    const data = await response.json() as { link: { countryRedirects?: Array<{ country: string, url: string }> } }
+    expect(data.link.countryRedirects).toEqual([
+      { country: 'US', url: 'https://example.com/us' },
+      { country: 'JP', url: 'https://example.com/jp' },
+    ])
+  })
+
   it('returns 409 when slug already exists', async () => {
     const payload = generateMock(linkSchema)
     await postJson('/api/link/create', payload)
@@ -67,6 +87,18 @@ describe.sequential('/api/link/create', () => {
 
   it('returns 400 when url is invalid', async () => {
     const response = await postJson('/api/link/create', { url: 'not-a-valid-url', slug: 'test-slug' })
+    expect(response.status).toBe(400)
+  })
+
+  it('returns 400 when country redirect rules contain duplicate country codes', async () => {
+    const response = await postJson('/api/link/create', {
+      url: 'https://example.com/default',
+      slug: 'duplicate-country-rules',
+      countryRedirects: [
+        { country: 'US', url: 'https://example.com/us-1' },
+        { country: 'us', url: 'https://example.com/us-2' },
+      ],
+    })
     expect(response.status).toBe(400)
   })
 
@@ -117,6 +149,17 @@ describe.sequential('/api/link/query', () => {
   it('returns 401 when accessing without auth', async () => {
     const response = await fetch(`/api/link/query?slug=${testLinkPayload.slug}`)
     expect(response.status).toBe(401)
+  })
+
+  it('returns normalized country redirect rules for valid slug', async () => {
+    const response = await fetchWithAuth('/api/link/query?slug=country-rules-link')
+    expect(response.status).toBe(200)
+
+    const data = await response.json() as { countryRedirects?: Array<{ country: string, url: string }> }
+    expect(data.countryRedirects).toEqual([
+      { country: 'US', url: 'https://example.com/us' },
+      { country: 'JP', url: 'https://example.com/jp' },
+    ])
   })
 })
 
@@ -201,22 +244,29 @@ describe.sequential('/api/link/edit', () => {
       title: 'test title',
       cloaking: true,
       redirectWithQuery: true,
+      countryRedirects: [
+        { country: 'US', url: 'https://example.com/us' },
+      ],
     })
     expect(setResponse.status).toBe(201)
-    const setData = await setResponse.json() as { link: { comment?: string, title?: string, cloaking?: boolean, redirectWithQuery?: boolean } }
+    const setData = await setResponse.json() as { link: { comment?: string, title?: string, cloaking?: boolean, redirectWithQuery?: boolean, countryRedirects?: Array<{ country: string, url: string }> } }
     expect(setData.link.comment).toBe('test comment')
     expect(setData.link.title).toBe('test title')
     expect(setData.link.cloaking).toBe(true)
     expect(setData.link.redirectWithQuery).toBe(true)
+    expect(setData.link.countryRedirects).toEqual([
+      { country: 'US', url: 'https://example.com/us' },
+    ])
 
     // Edit without optional fields (user cleared them)
     const removeResponse = await putJson('/api/link/edit', { url: testLinkPayload.url, slug })
     expect(removeResponse.status).toBe(201)
-    const removeData = await removeResponse.json() as { link: { comment?: string, title?: string, cloaking?: boolean, redirectWithQuery?: boolean } }
+    const removeData = await removeResponse.json() as { link: { comment?: string, title?: string, cloaking?: boolean, redirectWithQuery?: boolean, countryRedirects?: Array<{ country: string, url: string }> } }
     expect(removeData.link.comment).toBeUndefined()
     expect(removeData.link.title).toBeUndefined()
     expect(removeData.link.cloaking).toBeUndefined()
     expect(removeData.link.redirectWithQuery).toBeUndefined()
+    expect(removeData.link.countryRedirects).toBeUndefined()
   })
 
   it('returns 404 when editing non-existent link', async () => {
@@ -296,5 +346,89 @@ describe.sequential('/api/link/delete', () => {
   it('returns 401 when accessing without auth', async () => {
     const response = await postJson('/api/link/delete', {}, false)
     expect(response.status).toBe(401)
+  })
+})
+
+describe.sequential('/redirect country rules', () => {
+  const redirectPayload = {
+    url: 'https://example.com/default',
+    slug: 'country-redirect-target',
+    google: 'https://play.google.com/store/apps/details?id=sink.test',
+    redirectWithQuery: true,
+    countryRedirects: [
+      { country: 'US', url: 'https://example.com/us' },
+      { country: 'JP', url: 'https://example.com/jp' },
+    ],
+  }
+
+  it('creates a link with country redirect rules for runtime tests', async () => {
+    const response = await postJson('/api/link/create', redirectPayload)
+    expect(response.status).toBe(201)
+  })
+
+  it('redirects to the matching country override', async () => {
+    const response = await fetch('/country-redirect-target', {
+      redirect: 'manual',
+      headers: {
+        'CF-IPCountry': 'US',
+      },
+    })
+
+    expect(response.status).toBe(301)
+    expect(response.headers.get('Location')).toBe('https://example.com/us')
+  })
+
+  it('falls back to the base url when the country does not match', async () => {
+    const response = await fetch('/country-redirect-target', {
+      redirect: 'manual',
+      headers: {
+        'CF-IPCountry': 'CA',
+      },
+    })
+
+    expect(response.status).toBe(301)
+    expect(response.headers.get('Location')).toBe('https://example.com/default')
+  })
+
+  it('falls back to the base url when the country header is invalid', async () => {
+    const response = await fetch('/country-redirect-target', {
+      redirect: 'manual',
+      headers: {
+        'CF-IPCountry': 'XX',
+      },
+    })
+
+    expect(response.status).toBe(301)
+    expect(response.headers.get('Location')).toBe('https://example.com/default')
+  })
+
+  it('appends query parameters to matching country redirects', async () => {
+    const response = await fetch('/country-redirect-target?ref=campaign', {
+      redirect: 'manual',
+      headers: {
+        'CF-IPCountry': 'JP',
+      },
+    })
+
+    expect(response.status).toBe(301)
+    expect(response.headers.get('Location')).toBe('https://example.com/jp?ref=campaign')
+  })
+
+  it('keeps device redirects ahead of country redirects', async () => {
+    const response = await fetch('/country-redirect-target', {
+      redirect: 'manual',
+      headers: {
+        'CF-IPCountry': 'US',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/123.0.0.0 Mobile Safari/537.36',
+      },
+    })
+
+    expect(response.status).toBe(301)
+    expect(response.headers.get('Location')).toBe('https://play.google.com/store/apps/details?id=sink.test')
+  })
+
+  it('deletes the redirect runtime test link', async () => {
+    const response = await postJson('/api/link/delete', { slug: redirectPayload.slug })
+    expect(response.status).toBe(204)
   })
 })
